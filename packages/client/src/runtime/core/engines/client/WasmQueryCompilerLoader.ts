@@ -10,11 +10,30 @@ import { QueryCompilerLoader } from './types/QueryCompiler'
 // cache loaded wasm instances by provider
 const loadedWasmInstances: Record<string, Promise<QueryCompilerConstructor>> = {}
 
+function isTsxRuntime(): boolean {
+  return (
+    process.argv[0]?.includes('tsx') ||
+    process.env.NODE_OPTIONS?.includes('tsx') ||
+    !!process.env.TSX_TSCONFIG_PATH
+  )
+}
+
 export const wasmQueryCompilerLoader: QueryCompilerLoader = {
   async loadQueryCompiler(config) {
     const { clientVersion, compilerWasm } = config
 
     if (compilerWasm === undefined) {
+      // Check if running under tsx and provide helpful guidance
+      if (isTsxRuntime()) {
+        throw new PrismaClientInitializationError(
+          'tsx does not support WebAssembly modules. Please use one of the following solutions:\n' +
+          '1. Use Node.js directly: `node --loader tsx/esm prisma/seed.ts`\n' +
+          '2. Set environment variable: `PRISMA_QUERY_ENGINE_LIBRARY=1 tsx prisma/seed.ts`\n' +
+          '3. Use ts-node instead: `ts-node prisma/seed.ts`\n' +
+          '4. Compile TypeScript first: `tsc && node dist/seed.js`',
+          clientVersion
+        )
+      }
       throw new PrismaClientInitializationError('WASM query compiler was unexpectedly `undefined`', clientVersion)
     }
 

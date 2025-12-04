@@ -9,16 +9,27 @@ export function buildQueryCompilerWasmModule(
   runtimeName: TSClientOptions['runtimeName'],
 ) {
   if (runtimeName === 'client' && !forceEdgeWasmLoader) {
-    return `config.compilerWasm = {
-      getRuntime: async () => require('./query_compiler_bg.js'),
-      getQueryCompilerWasmModule: async () => {
-        const { Buffer } = require('node:buffer')
-        const { wasm } = require('./query_compiler_bg.wasm-base64.js')
-        const queryCompilerWasmFileBytes = Buffer.from(wasm, 'base64')
+    return `// Fallback for tsx runtime that doesn't support .wasm files
+if (typeof process !== 'undefined' && (
+  process.argv[0]?.includes('tsx') || 
+  process.env.NODE_OPTIONS?.includes('tsx') ||
+  !!process.env.TSX_TSCONFIG_PATH
+)) {
+  // Force library engine when tsx is detected
+  process.env.PRISMA_QUERY_ENGINE_LIBRARY = '1'
+  config.compilerWasm = undefined
+} else {
+  config.compilerWasm = {
+    getRuntime: async () => require('./query_compiler_bg.js'),
+    getQueryCompilerWasmModule: async () => {
+      const { Buffer } = require('node:buffer')
+      const { wasm } = require('./query_compiler_bg.wasm-base64.js')
+      const queryCompilerWasmFileBytes = Buffer.from(wasm, 'base64')
 
-        return new WebAssembly.Module(queryCompilerWasmFileBytes)
-      }
-    }`
+      return new WebAssembly.Module(queryCompilerWasmFileBytes)
+    }
+  }
+}`
   }
 
   // For cloudflare (workers) we need to use import in order to load wasm
@@ -30,12 +41,23 @@ export function buildQueryCompilerWasmModule(
   // to lead to a runtime "No such module .prisma/client/#wasm-compiler-loader" error.
   // Related issue: https://github.com/vitest-dev/vitest/issues/5486.
   if ((runtimeName === 'client' && forceEdgeWasmLoader) || runtimeName === 'wasm-compiler-edge') {
-    return `config.compilerWasm = {
-  getRuntime: async () => require('./query_compiler_bg.js'),
-  getQueryCompilerWasmModule: async () => {
-    const loader = (await import('#wasm-compiler-loader')).default
-    const compiler = (await loader).default
-    return compiler
+    return `// Fallback for tsx runtime that doesn't support .wasm files
+if (typeof process !== 'undefined' && (
+  process.argv[0]?.includes('tsx') || 
+  process.env.NODE_OPTIONS?.includes('tsx') ||
+  !!process.env.TSX_TSCONFIG_PATH
+)) {
+  // Force library engine when tsx is detected
+  process.env.PRISMA_QUERY_ENGINE_LIBRARY = '1'
+  config.compilerWasm = undefined
+} else {
+  config.compilerWasm = {
+    getRuntime: async () => require('./query_compiler_bg.js'),
+    getQueryCompilerWasmModule: async () => {
+      const loader = (await import('#wasm-compiler-loader')).default
+      const compiler = (await loader).default
+      return compiler
+    }
   }
 }`
   }

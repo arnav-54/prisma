@@ -24,6 +24,15 @@ function usesEdgeWasmRuntime(runtimeName: RuntimeName) {
   return runtimeName === 'wasm-compiler-edge'
 }
 
+function isTsxRuntime(): boolean {
+  // Check if we're running under tsx
+  return (
+    process.argv[0]?.includes('tsx') ||
+    process.env.NODE_OPTIONS?.includes('tsx') ||
+    !!process.env.TSX_TSCONFIG_PATH
+  )
+}
+
 export function buildGetWasmModule({ runtimeName, runtimeBase, activeProvider, moduleFormat }: BuildWasmModuleOptions) {
   const extension = match(moduleFormat)
     .with('esm', () => 'mjs')
@@ -66,7 +75,22 @@ export function buildGetWasmModule({ runtimeName, runtimeBase, activeProvider, m
   if (buildNonEdgeLoader) {
     wasmBindingsPath = `${wasmPathBase}.${extension}`
     wasmModulePath = `${wasmPathBase}.wasm-base64.${extension}`
+    
+    // Add tsx detection and fallback
+    const tsxFallback = `
+// Fallback for tsx runtime that doesn't support .wasm files
+if (typeof process !== 'undefined' && (
+  process.argv[0]?.includes('tsx') || 
+  process.env.NODE_OPTIONS?.includes('tsx') ||
+  !!process.env.TSX_TSCONFIG_PATH
+)) {
+  // Force library engine when tsx is detected
+  process.env.PRISMA_QUERY_ENGINE_LIBRARY = '1'
+  config.compilerWasm = undefined
+} else {`
+
     return `
+${tsxFallback}
 async function decodeBase64AsWasm(wasmBase64: string): Promise<WebAssembly.Module> {
   const { Buffer } = await import('node:buffer')
   const wasmArray = Buffer.from(wasmBase64, 'base64')
@@ -80,6 +104,7 @@ config.compilerWasm = {
     const { wasm } = await import(${JSON.stringify(wasmModulePath)})
     return await decodeBase64AsWasm(wasm)
   }
+}
 }`
   }
 
